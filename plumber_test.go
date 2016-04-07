@@ -1,4 +1,4 @@
-package cx
+package plumber
 
 import (
 	"net/http"
@@ -10,9 +10,9 @@ import (
 
 func TestContext(t *testing.T) {
 	var md ContextProvider = mdl
-	chain := Plumb(func() Context {
+	chain := Plumb(ContextFactoryFunc(func() interface{} {
 		return &AppContext{}
-	}, md, md, ContextProvider(check(t)))
+	}), md, md, ContextProvider(check(t)))
 
 	w := httptest.NewRecorder()
 	r, err := http.NewRequest("GET", "/", nil)
@@ -23,8 +23,8 @@ func TestContext(t *testing.T) {
 	chain.ServeHTTP(w, r)
 }
 
-func check(t *testing.T) func(context Context) MiddlewareFunc {
-	f := func(context Context) MiddlewareFunc {
+func check(t *testing.T) func(context interface{}) MiddlewareFunc {
+	f := func(context interface{}) MiddlewareFunc {
 		var mid MiddlewareFunc = func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				appx, ok := context.(*AppContext)
@@ -41,7 +41,7 @@ func check(t *testing.T) func(context Context) MiddlewareFunc {
 	return f
 }
 
-func mdl(context Context) MiddlewareFunc {
+func mdl(context interface{}) MiddlewareFunc {
 	var mid MiddlewareFunc = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			appx, ok := context.(*AppContext)
@@ -56,7 +56,6 @@ func mdl(context Context) MiddlewareFunc {
 }
 
 type AppContext struct {
-	Context
 	Name  string
 	Count int
 }
@@ -74,7 +73,7 @@ func Test2(t *testing.T) {
 			h.ServeHTTP(w, r)
 		})
 	}
-	var c3 ContextProvider = func(context Context) MiddlewareFunc {
+	var c3 ContextProvider = func(context interface{}) MiddlewareFunc {
 		return c2
 	}
 
