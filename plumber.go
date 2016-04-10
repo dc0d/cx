@@ -9,15 +9,15 @@ import (
 
 //ContextFactory makes (creates/provides) the context for using in the chain of handlers
 type ContextFactory interface {
-	Make() interface{}
+	Make(http.ResponseWriter, *http.Request) interface{}
 }
 
 //ContextFactoryFunc implements ContextFactory interface & provide an easy way to adopt out ContextFactories
-type ContextFactoryFunc func() interface{}
+type ContextFactoryFunc func(http.ResponseWriter, *http.Request) interface{}
 
 //Make implementation of ContextFactoryFunc
-func (factory ContextFactoryFunc) Make() interface{} {
-	return factory()
+func (factory ContextFactoryFunc) Make(rs http.ResponseWriter, rq *http.Request) interface{} {
+	return factory(rs, rq)
 }
 
 // Handler things
@@ -41,7 +41,7 @@ func Handle(contextFactory ContextFactory, handlers ...http.Handler) http.Handle
 			if ok {
 				once.Do(func() {
 					if contextFactory != nil {
-						ctx = contextFactory.Make()
+						ctx = contextFactory.Make(w, r)
 					}
 				})
 				ctxHandler(ctx).ServeHTTP(w, r)
@@ -88,7 +88,7 @@ func Plumb(contextFactory ContextFactory, middlewares ...Middleware) http.Handle
 			if ok {
 				once.Do(func() {
 					if contextFactory != nil {
-						ctx = contextFactory.Make()
+						ctx = contextFactory.Make(w, r)
 					}
 				})
 				final = ctxMiddleware(ctx)(final)

@@ -23,7 +23,7 @@ func TestGroups(t *testing.T) {
 	apiGroup2 := commonGroup
 	apiGroup2 = append(apiGroup2, md, md, md, ContextProvider(checkCount(t, 3)))
 
-	ctxFactory := ContextFactoryFunc(func() interface{} {
+	ctxFactory := ContextFactoryFunc(func(http.ResponseWriter, *http.Request) interface{} {
 		return &AppContext{}
 	})
 
@@ -128,7 +128,7 @@ const (
 
 func TestContext(t *testing.T) {
 	var md ContextProvider = mdl
-	chain := Plumb(ContextFactoryFunc(func() interface{} {
+	chain := Plumb(ContextFactoryFunc(func(http.ResponseWriter, *http.Request) interface{} {
 		return &AppContext{}
 	}), md, md, ContextProvider(check(t)))
 
