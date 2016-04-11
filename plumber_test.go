@@ -15,13 +15,13 @@ import (
 
 func TestGroups(t *testing.T) {
 	commonGroup := []Middleware{MiddlewareFunc(reqLogger), MiddlewareFunc(recoverPlumbing)}
-	var md ContextProvider = mdl
+	var counterMd ContextProvider = counterMiddleware
 
 	apiGroup1 := commonGroup
-	apiGroup1 = append(apiGroup1, md, md, ContextProvider(check(t)))
+	apiGroup1 = append(apiGroup1, counterMd, counterMd, ContextProvider(checkCount(t, 2)))
 
 	apiGroup2 := commonGroup
-	apiGroup2 = append(apiGroup2, md, md, md, ContextProvider(checkCount(t, 3)))
+	apiGroup2 = append(apiGroup2, counterMd, counterMd, counterMd, ContextProvider(checkCount(t, 3)))
 
 	ctxFactory := ContextFactoryFunc(func(http.ResponseWriter, *http.Request) interface{} {
 		return &AppContext{}
@@ -127,10 +127,10 @@ const (
 )
 
 func TestContext(t *testing.T) {
-	var md ContextProvider = mdl
+	var counterMd ContextProvider = counterMiddleware
 	chain := Plumb(ContextFactoryFunc(func(http.ResponseWriter, *http.Request) interface{} {
 		return &AppContext{}
-	}), md, md, ContextProvider(check(t)))
+	}), counterMd, counterMd, ContextProvider(testMiddleware(t)))
 
 	w := httptest.NewRecorder()
 	r, err := http.NewRequest("GET", "/", nil)
@@ -141,8 +141,8 @@ func TestContext(t *testing.T) {
 	chain.ServeHTTP(w, r)
 }
 
-func check(t *testing.T) func(context interface{}) MiddlewareFunc {
-	f := func(context interface{}) MiddlewareFunc {
+func testMiddleware(t *testing.T) func(context interface{}) MiddlewareFunc {
+	return func(context interface{}) MiddlewareFunc {
 		var mid MiddlewareFunc = func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				appx, ok := context.(*AppContext)
@@ -155,12 +155,10 @@ func check(t *testing.T) func(context interface{}) MiddlewareFunc {
 
 		return mid
 	}
-
-	return f
 }
 
-func mdl(context interface{}) MiddlewareFunc {
-	var mid MiddlewareFunc = func(next http.Handler) http.Handler {
+func counterMiddleware(context interface{}) MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			appx, ok := context.(*AppContext)
 			if ok {
@@ -169,8 +167,6 @@ func mdl(context interface{}) MiddlewareFunc {
 			next.ServeHTTP(w, r)
 		})
 	}
-
-	return mid
 }
 
 type AppContext struct {
@@ -195,9 +191,10 @@ func Test2(t *testing.T) {
 		return c2
 	}
 
-	slice := []Middleware{c1, c2, c3}
+	// sequence := []Middleware{c1, c2, c3}
+	// chain := Plumb(nil, sequence...)
 
-	chain := Plumb(nil, slice...)
+	chain := Plumb(nil, c1, c2, c3)
 
 	w := httptest.NewRecorder()
 	r, err := http.NewRequest("GET", "/", nil)
@@ -228,13 +225,11 @@ func TestHandlersOrders(t *testing.T) {
 	assert.Equal(t, output, "123")
 }
 
-func tagMiddleware(tag string) Middleware {
-	var mid MiddlewareFunc = func(h http.Handler) http.Handler {
+func tagMiddleware(tag string) MiddlewareFunc {
+	return func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(tag))
 			h.ServeHTTP(w, r)
 		})
 	}
-
-	return mid
 }
