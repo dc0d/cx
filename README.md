@@ -17,12 +17,13 @@ and `middleware1`, `middleware2` and `app` are of type `ContextInjector` which h
 Since we just use slices of middlewares, creating groups is very easy too. For example we can add a logger and a recovery middleware to all groups like this:
 ```go
 commonGroup := []Middleware{MiddlewareFunc(reqLogger), MiddlewareFunc(recoverPlumbing)}
+var counterMd ContextInjector = counterMiddleware
 
 apiGroup1 := commonGroup
-apiGroup1 = append(apiGroup1, counterMd, counterMd, ContextInjector(checkCount(t, 2)))
+apiGroup1 = append(apiGroup1, counterMd, counterMd, checkCount(t, 2))
 
 apiGroup2 := commonGroup
-apiGroup2 = append(apiGroup2, counterMd, counterMd, counterMd, ContextInjector(checkCount(t, 3)))
+apiGroup2 = append(apiGroup2, counterMd, counterMd, counterMd, checkCount(t, 3))
 ```
 API polished and changed a bit - should still be used in my projects a bit longer to get more refined & close to my taste. 
 
