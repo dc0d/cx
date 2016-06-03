@@ -13,15 +13,25 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+//this nil thing ... is ok as long as it's not (*T)(nil) - not funny :\
+func TestNil(t *testing.T) {
+	var h http.Handler
+	h = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	h = nil
+	if h != nil {
+		t.Fail()
+	}
+}
+
 func TestGroups(t *testing.T) {
 	commonGroup := []Middleware{MiddlewareFunc(reqLogger), MiddlewareFunc(recoverPlumbing)}
-	var counterMd ContextProvider = counterMiddleware
+	var counterMd ContextInjector = counterMiddleware
 
 	apiGroup1 := commonGroup
-	apiGroup1 = append(apiGroup1, counterMd, counterMd, ContextProvider(checkCount(t, 2)))
+	apiGroup1 = append(apiGroup1, counterMd, counterMd, checkCount(t, 2))
 
 	apiGroup2 := commonGroup
-	apiGroup2 = append(apiGroup2, counterMd, counterMd, counterMd, ContextProvider(checkCount(t, 3)))
+	apiGroup2 = append(apiGroup2, counterMd, counterMd, counterMd, checkCount(t, 3))
 
 	ctxFactory := ContextFactoryFunc(func(http.ResponseWriter, *http.Request) interface{} {
 		return &AppContext{}
@@ -46,15 +56,14 @@ func TestGroups(t *testing.T) {
 	chain2.ServeHTTP(w2, r2)
 }
 
-func checkCount(t *testing.T, count int) func(context interface{}) MiddlewareFunc {
-	f := func(context interface{}) MiddlewareFunc {
-		var mid MiddlewareFunc = func(next http.Handler) http.Handler {
+func checkCount(t *testing.T, count int) ContextInjector {
+	f := func(context interface{}) Middleware {
+		var mid ActionFunc = func() http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				appx, ok := context.(*AppContext)
 				if ok {
 					assert.Equal(t, appx.Count, count)
 				}
-				next.ServeHTTP(w, r)
 			})
 		}
 
@@ -127,10 +136,10 @@ const (
 )
 
 func TestContext(t *testing.T) {
-	var counterMd ContextProvider = counterMiddleware
+	var counterMd ContextInjector = counterMiddleware
 	chain := Plumb(ContextFactoryFunc(func(http.ResponseWriter, *http.Request) interface{} {
 		return &AppContext{}
-	}), counterMd, counterMd, ContextProvider(testMiddleware(t)))
+	}), counterMd, counterMd, testMiddleware(t))
 
 	w := httptest.NewRecorder()
 	r, err := http.NewRequest("GET", "/", nil)
@@ -139,17 +148,19 @@ func TestContext(t *testing.T) {
 	}
 
 	chain.ServeHTTP(w, r)
+	if string(w.Body.Bytes()) != `TESTTEST` {
+		t.Fail()
+	}
 }
 
-func testMiddleware(t *testing.T) func(context interface{}) MiddlewareFunc {
-	return func(context interface{}) MiddlewareFunc {
-		var mid MiddlewareFunc = func(next http.Handler) http.Handler {
+func testMiddleware(t *testing.T) ContextInjector {
+	return func(context interface{}) Middleware {
+		var mid ActionFunc = func() http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				appx, ok := context.(*AppContext)
 				if ok {
 					assert.Equal(t, appx.Count, 2)
 				}
-				next.ServeHTTP(w, r)
 			})
 		}
 
@@ -157,16 +168,17 @@ func testMiddleware(t *testing.T) func(context interface{}) MiddlewareFunc {
 	}
 }
 
-func counterMiddleware(context interface{}) MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
+func counterMiddleware(context interface{}) Middleware {
+	return MiddlewareFunc(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`TEST`))
 			appx, ok := context.(*AppContext)
 			if ok {
 				appx.Count = appx.Count + 1
 			}
 			next.ServeHTTP(w, r)
 		})
-	}
+	})
 }
 
 type AppContext struct {
@@ -181,13 +193,12 @@ func Test2(t *testing.T) {
 			h.ServeHTTP(w, r)
 		})
 	}
-	var c2 MiddlewareFunc = func(h http.Handler) http.Handler {
+	var c2 ActionFunc = func() http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("2"))
-			h.ServeHTTP(w, r)
 		})
 	}
-	var c3 ContextProvider = func(context interface{}) MiddlewareFunc {
+	var c3 ContextInjector = func(context interface{}) Middleware {
 		return c2
 	}
 
@@ -225,11 +236,10 @@ func TestHandlersOrders(t *testing.T) {
 	assert.Equal(t, output, "123")
 }
 
-func tagMiddleware(tag string) MiddlewareFunc {
-	return func(h http.Handler) http.Handler {
+func tagMiddleware(tag string) ActionFunc {
+	return func() http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(tag))
-			h.ServeHTTP(w, r)
 		})
 	}
 }

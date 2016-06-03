@@ -68,12 +68,12 @@ func (mf MiddlewareFunc) Execute(next http.Handler) http.Handler {
 	return mf(next)
 }
 
-//ContextProvider a middleware that accepts a context (default: nil)
-type ContextProvider func(context interface{}) MiddlewareFunc
+//ContextInjector a middleware that accepts a context (default: nil)
+type ContextInjector func(context interface{}) Middleware
 
 //Execute implements Middleware inerface
-func (mfx ContextProvider) Execute(next http.Handler) http.Handler {
-	return mfx(nil)(next)
+func (ctxInjector ContextInjector) Execute(next http.Handler) http.Handler {
+	return ctxInjector(nil).Execute(next)
 }
 
 //Plumb creates a pipeline if middlewares () either MiddlewareFunc or ContextProvider)
@@ -81,17 +81,17 @@ func Plumb(contextFactory ContextFactory, middlewares ...Middleware) http.Handle
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var once sync.Once //because in case there is no need for a context, we would not instantiate one
 		var ctx interface{}
-		var final http.Handler = http.DefaultServeMux
+		var final http.Handler
 
 		for i := len(middlewares) - 1; i >= 0; i-- {
-			ctxMiddleware, ok := middlewares[i].(ContextProvider)
+			ctxMiddleware, ok := middlewares[i].(ContextInjector)
 			if ok {
 				once.Do(func() {
 					if contextFactory != nil {
 						ctx = contextFactory.Make(w, r)
 					}
 				})
-				final = ctxMiddleware(ctx)(final)
+				final = ctxMiddleware(ctx).Execute(final)
 				continue
 			}
 
@@ -100,4 +100,19 @@ func Plumb(contextFactory ContextFactory, middlewares ...Middleware) http.Handle
 
 		final.ServeHTTP(w, r)
 	})
+}
+
+//ActionFunc automatically calls next middleware, if not nil. Useful for time you are not concerned with the next middleware. Can also be used as last action.
+type ActionFunc func() http.Handler
+
+//Execute implements Middleware inerface
+func (act ActionFunc) Execute(next http.Handler) http.Handler {
+	var h http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
+		act().ServeHTTP(res, req)
+		if next != nil {
+			next.ServeHTTP(res, req)
+		}
+	}
+
+	return h
 }
