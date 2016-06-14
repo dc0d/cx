@@ -27,4 +27,4 @@ apiGroup2 = append(apiGroup2, counterMd, counterMd, counterMd, checkCount(t, 3))
 ```
 API polished and changed a bit - should still be used in my projects a bit longer to get more refined & close to my taste. 
 
-For previous stable version use [gopkg.in/dc0d/plumber.v1](gopkg.in/dc0d/plumber.v1).
+Current stable version is [gopkg.in/dc0d/plumber.v2](http://gopkg.in/dc0d/plumber.v2). For previous stable version use [gopkg.in/dc0d/plumber.v1](http://gopkg.in/dc0d/plumber.v1).
