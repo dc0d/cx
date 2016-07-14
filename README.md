@@ -1,6 +1,8 @@
 # plumber
 Another try in middleware plumbing in Go (inspired by [restiful](https://github.com/laicosly/restiful), [alice](https://github.com/justinas/alice) and some experiences). I does not forces you to change the way you code classic handlers and middlewares.
 
+It achieves this by employing _**function currying**_ and _**closures**_ - and Go has one of the sanest implementations of closures.
+
 A chain of middlewares is simply a slice of `Middleware`. That's the basic concept here. Having three middlewares `c1`, `c2` and `c3` we can simply chain them and serve requests like this:
 ```go
 chain := Plumb(nil, c1, c2, c3)
