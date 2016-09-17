@@ -1,5 +1,5 @@
 # plumber
-Another try in middleware plumbing in Go (inspired by [restiful](https://github.com/laicosly/restiful), [alice](https://github.com/justinas/alice) and some experiences). I does not forces you to change the way you code classic handlers and middlewares.
+Another try in middleware plumbing in Go (inspired by [restiful](https://github.com/laicosly/restiful), [alice](https://github.com/justinas/alice) and some experiences). It does not forces you to change the way you code classic handlers and middlewares.
 
 > Adapted Go 1.7 context pattern, so the previous API is not longer needed. Though they are available at [gopkg.in/dc0d/plumber.v2](http://gopkg.in/dc0d/plumber.v2) and [gopkg.in/dc0d/plumber.v1](http://gopkg.in/dc0d/plumber.v1).  
 
