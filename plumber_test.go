@@ -1,6 +1,7 @@
 package plumber
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -13,65 +14,27 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-//this nil thing ... is ok as long as it's not (*T)(nil) - not funny :\
-func TestNil(t *testing.T) {
-	var h http.Handler
-	h = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-	h = nil
-	if h != nil {
-		t.Fail()
-	}
-}
+//-----------------------------------------------------------------------------
 
-func TestGroups(t *testing.T) {
-	commonGroup := []Middleware{MiddlewareFunc(reqLogger), MiddlewareFunc(recoverPlumbing)}
-	var counterMd ContextInjector = counterMiddleware
+func TestHandlersOrders(t *testing.T) {
+	t1 := action1("1")
+	t2 := action1("2")
+	t3 := action1("3")
 
-	apiGroup1 := commonGroup
-	apiGroup1 = append(apiGroup1, counterMd, counterMd, checkCount(t, 2))
+	chained := Plumb(t1, t2, t3)
 
-	apiGroup2 := commonGroup
-	apiGroup2 = append(apiGroup2, counterMd, counterMd, counterMd, checkCount(t, 3))
-
-	ctxFactory := ContextFactoryFunc(func(http.ResponseWriter, *http.Request) interface{} {
-		return &AppContext{}
-	})
-
-	chain1 := Plumb(ctxFactory, apiGroup1...)
-	chain2 := Plumb(ctxFactory, apiGroup2...)
-
-	//one does this using her/his router of choice [or is there a mux just for testing?]
-	w1 := httptest.NewRecorder()
-	r1, err := http.NewRequest("GET", "/api/v1", nil)
+	w := httptest.NewRecorder()
+	r, err := http.NewRequest("GET", "/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	chain1.ServeHTTP(w1, r1)
 
-	w2 := httptest.NewRecorder()
-	r2, err := http.NewRequest("GET", "/api/v2", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	chain2.ServeHTTP(w2, r2)
+	chained.ServeHTTP(w, r)
+	output := w.Body.String()[:3]
+	assert.Equal(t, output, "123")
 }
 
-func checkCount(t *testing.T, count int) ContextInjector {
-	f := func(context interface{}) Middleware {
-		var mid ActionFunc = func() http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				appx, ok := context.(*AppContext)
-				if ok {
-					assert.Equal(t, appx.Count, count)
-				}
-			})
-		}
-
-		return mid
-	}
-
-	return f
-}
+//-----------------------------------------------------------------------------
 
 func recoverPlumbing(next http.Handler) http.Handler {
 	var fh http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
@@ -90,6 +53,14 @@ func recoverPlumbing(next http.Handler) http.Handler {
 
 	return fh
 }
+
+const (
+	//XRealIP +
+	XRealIP = "X-Real-IP"
+
+	//XForwardedFor +
+	XForwardedFor = "X-Forwarded-For"
+)
 
 func reqLogger(next http.Handler) http.Handler {
 	var fh http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
@@ -127,103 +98,43 @@ func reqLogger(next http.Handler) http.Handler {
 	return fh
 }
 
-const (
-	//XRealIP +
-	XRealIP = "X-Real-IP"
-
-	//XForwardedFor +
-	XForwardedFor = "X-Forwarded-For"
-)
-
-func TestContext(t *testing.T) {
-	var counterMd ContextInjector = counterMiddleware
-	chain := Plumb(ContextFactoryFunc(func(http.ResponseWriter, *http.Request) interface{} {
-		return &AppContext{}
-	}), counterMd, counterMd, testMiddleware(t))
-
-	w := httptest.NewRecorder()
-	r, err := http.NewRequest("GET", "/", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	chain.ServeHTTP(w, r)
-	if string(w.Body.Bytes()) != `TESTTEST` {
-		t.Fail()
-	}
-}
-
-func testMiddleware(t *testing.T) ContextInjector {
-	return func(context interface{}) Middleware {
-		var mid ActionFunc = func() http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				appx, ok := context.(*AppContext)
-				if ok {
-					assert.Equal(t, appx.Count, 2)
-				}
-			})
-		}
-
-		return mid
-	}
-}
-
-func counterMiddleware(context interface{}) Middleware {
-	return MiddlewareFunc(func(next http.Handler) http.Handler {
+func action1(s string) ActionFunc {
+	return func() http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`TEST`))
-			appx, ok := context.(*AppContext)
-			if ok {
-				appx.Count = appx.Count + 1
-			}
-			next.ServeHTTP(w, r)
-		})
-	})
-}
-
-type AppContext struct {
-	Name  string
-	Count int
-}
-
-func Test2(t *testing.T) {
-	var c1 MiddlewareFunc = func(h http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("1"))
-			h.ServeHTTP(w, r)
+			w.Write([]byte(s))
 		})
 	}
-	var c2 ActionFunc = func() http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("2"))
-		})
-	}
-	var c3 ContextInjector = func(context interface{}) Middleware {
-		return c2
-	}
-
-	// sequence := []Middleware{c1, c2, c3}
-	// chain := Plumb(nil, sequence...)
-
-	chain := Plumb(nil, c1, c2, c3)
-
-	w := httptest.NewRecorder()
-	r, err := http.NewRequest("GET", "/", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	chain.ServeHTTP(w, r)
-
-	assert.Equal(t, w.Body.String()[:3], "122")
 }
 
-func TestHandlersOrders(t *testing.T) {
-	t1 := tagMiddleware("1")
-	t2 := tagMiddleware("2")
-	t3 := tagMiddleware("3")
+func mw1(state string) MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.WithValue(r.Context(), "state", state)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
 
-	chained := Plumb(nil, t1, t2, t3)
+func mw2(t *testing.T, expectedState string) ActionFunc {
+	return func() http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			val := r.Context().Value("state")
+			sval := fmt.Sprintf("%v", val)
+			assert.Equal(t, sval, expectedState)
+		})
+	}
+}
+
+//-----------------------------------------------------------------------------
+
+func TestMiddlewareChain(t *testing.T) {
+	var chain MiddlewareChain = []Middleware{
+		action1("1"),
+		action1("2"),
+		action1("3"),
+	}
+
+	chained := Plumb(action1("5"), nil, nil, chain, action1("4"), nil)
 
 	w := httptest.NewRecorder()
 	r, err := http.NewRequest("GET", "/", nil)
@@ -232,14 +143,54 @@ func TestHandlersOrders(t *testing.T) {
 	}
 
 	chained.ServeHTTP(w, r)
-	output := w.Body.String()[:3]
-	assert.Equal(t, output, "123")
+	s := w.Body.String()
+
+	output := s[:5]
+	assert.Equal(t, output, "51234")
 }
 
-func tagMiddleware(tag string) ActionFunc {
-	return func() http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(tag))
-		})
+//-----------------------------------------------------------------------------
+
+func TestGroups(t *testing.T) {
+	var commonGroup MiddlewareChain = []Middleware{MiddlewareFunc(reqLogger), MiddlewareFunc(recoverPlumbing)}
+
+	var apiGroup1 = append(commonGroup, mw1("14"), mw1("12"), mw2(t, "12"), action1("4"))
+
+	var apiGroup2 MiddlewareChain = []Middleware{action1("4"), action1("5")}
+
+	chain1 := Plumb(apiGroup1)
+	chain2 := Plumb(commonGroup, apiGroup2)
+
+	//one does this using her/his router of choice [or is there a mux just for testing?]
+	w1 := httptest.NewRecorder()
+	r1, err := http.NewRequest("GET", "/api/v1", nil)
+	if err != nil {
+		t.Fatal(err)
 	}
+	chain1.ServeHTTP(w1, r1)
+
+	w2 := httptest.NewRecorder()
+	r2, err := http.NewRequest("GET", "/api/v2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain2.ServeHTTP(w2, r2)
 }
+
+//-----------------------------------------------------------------------------
+
+func TestContext(t *testing.T) {
+	var apiGroup = []Middleware{mw1("14"), mw1("12"), mw2(t, "12"), action1("4")}
+
+	chain := Plumb(apiGroup...)
+
+	//one does this using her/his router of choice [or is there a mux just for testing?]
+	w1 := httptest.NewRecorder()
+	r1, err := http.NewRequest("GET", "/api/v1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain.ServeHTTP(w1, r1)
+}
+
+//-----------------------------------------------------------------------------

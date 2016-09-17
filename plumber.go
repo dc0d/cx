@@ -1,64 +1,8 @@
 package plumber
 
-import (
-	"net/http"
-	"sync"
-)
+import "net/http"
 
-// ContextFactory things
-
-//ContextFactory makes (creates/provides) the context for using in the chain of handlers
-type ContextFactory interface {
-	Make(http.ResponseWriter, *http.Request) interface{}
-}
-
-//ContextFactoryFunc implements ContextFactory interface & provide an easy way to adopt out ContextFactories
-type ContextFactoryFunc func(http.ResponseWriter, *http.Request) interface{}
-
-//Make implementation of ContextFactoryFunc
-func (factory ContextFactoryFunc) Make(rs http.ResponseWriter, rq *http.Request) interface{} {
-	return factory(rs, rq)
-}
-
-// Handler things
-
-//Handler takes context as a closure (curry)
-type Handler func(context interface{}) http.Handler
-
-//ServeHTTP default implementation for Handler, which uses a nil context
-func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h(nil).ServeHTTP(w, r)
-}
-
-//Handle handlers are either http.Handler or plumber.Handler; just executes them sequentially & provides the context if they are of type plumber.Handler
-func Handle(contextFactory ContextFactory, handlers ...http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var once sync.Once //because in case there is no need for a context, we would not instantiate one
-		var ctx interface{}
-
-		for _, handler := range handlers {
-			ctxHandler, ok := handler.(Handler)
-			if ok {
-				once.Do(func() {
-					if contextFactory != nil {
-						ctx = contextFactory.Make(w, r)
-					}
-				})
-				ctxHandler(ctx).ServeHTTP(w, r)
-				continue
-			}
-
-			handler.ServeHTTP(w, r)
-		}
-	})
-}
-
-//Middleware things
-
-//Middleware inerface
-type Middleware interface {
-	Execute(http.Handler) http.Handler
-}
+//-----------------------------------------------------------------------------
 
 //MiddlewareFunc middleware
 type MiddlewareFunc func(http.Handler) http.Handler
@@ -68,39 +12,7 @@ func (mf MiddlewareFunc) Execute(next http.Handler) http.Handler {
 	return mf(next)
 }
 
-//ContextInjector a middleware that accepts a context (default: nil)
-type ContextInjector func(context interface{}) Middleware
-
-//Execute implements Middleware inerface
-func (ctxInjector ContextInjector) Execute(next http.Handler) http.Handler {
-	return ctxInjector(nil).Execute(next)
-}
-
-//Plumb creates a pipeline if middlewares () either MiddlewareFunc or ContextProvider)
-func Plumb(contextFactory ContextFactory, middlewares ...Middleware) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var once sync.Once //because in case there is no need for a context, we would not instantiate one
-		var ctx interface{}
-		var final http.Handler
-
-		for i := len(middlewares) - 1; i >= 0; i-- {
-			ctxMiddleware, ok := middlewares[i].(ContextInjector)
-			if ok {
-				once.Do(func() {
-					if contextFactory != nil {
-						ctx = contextFactory.Make(w, r)
-					}
-				})
-				final = ctxMiddleware(ctx).Execute(final)
-				continue
-			}
-
-			final = middlewares[i].Execute(final)
-		}
-
-		final.ServeHTTP(w, r)
-	})
-}
+//-----------------------------------------------------------------------------
 
 //ActionFunc automatically calls next middleware, if not nil. Useful for time you are not concerned with the next middleware. Can also be used as last action.
 type ActionFunc func() http.Handler
@@ -116,3 +28,48 @@ func (act ActionFunc) Execute(next http.Handler) http.Handler {
 
 	return h
 }
+
+//-----------------------------------------------------------------------------
+
+// MiddlewareChain /
+type MiddlewareChain []Middleware
+
+//Execute implements Middleware inerface
+func (mc MiddlewareChain) Execute(next http.Handler) http.Handler {
+	piled := mc
+	if next != nil {
+		var same ActionFunc = func() http.Handler { return next }
+		piled = append(mc, same)
+	}
+
+	return Plumb(piled...)
+}
+
+//-----------------------------------------------------------------------------
+
+//Plumb creates a pipeline if middlewares
+func Plumb(middlewares ...Middleware) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var final http.Handler
+
+		for i := len(middlewares) - 1; i >= 0; i-- {
+			mw := middlewares[i]
+			if mw == nil {
+				continue
+			}
+
+			final = mw.Execute(final)
+		}
+
+		final.ServeHTTP(w, r)
+	})
+}
+
+//-----------------------------------------------------------------------------
+
+//Middleware inerface
+type Middleware interface {
+	Execute(http.Handler) http.Handler
+}
+
+//-----------------------------------------------------------------------------
