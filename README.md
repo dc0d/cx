@@ -8,4 +8,4 @@ A chain of middlewares is simply a slice of `Middleware`. That's the basic conce
 chain := Plumb(c1, c2, c3)
 chain.ServeHTTP(w, r)
 ```
-For samples on how to use this package see tests - for example creating groups and reuse common middlewares.
+For samples on how to use this package see tests - for example creating groups and reuse common middlewares. Also functions with signatures of either `func(http.ResponseWriter, *http.Request)` or `func(http.ResponseWriter, *http.Request, http.Handler)` can be used as an action or middleware using the `Adapt` function.

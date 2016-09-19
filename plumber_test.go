@@ -87,10 +87,11 @@ func reqLogger(next http.Handler) http.Handler {
 		}
 
 		logMsg := fmt.Sprintf("%v %v %v %v", remoteAddr, method, path, elapsedTime)
+		_ = logMsg
 		if hasError {
-			log.Printf("WARN: %s\n", logMsg)
+			// log.Printf("WARN: %s\n", logMsg)
 		} else {
-			log.Printf("LOG : %s\n", logMsg)
+			// log.Printf("LOG : %s\n", logMsg)
 		}
 
 	}
@@ -194,3 +195,38 @@ func TestContext(t *testing.T) {
 }
 
 //-----------------------------------------------------------------------------
+
+const viewStateContextKey = `viewStateContextKey.key`
+
+type viewState struct {
+	Message string
+}
+
+func reqState(res http.ResponseWriter, req *http.Request, next http.Handler) {
+	st := new(viewState)
+	st.Message = `123`
+
+	ctx := context.WithValue(req.Context(), viewStateContextKey, st)
+	next.ServeHTTP(res, req.WithContext(ctx))
+}
+
+func index(w http.ResponseWriter, r *http.Request) {
+	st := r.Context().Value(viewStateContextKey).(*viewState)
+	w.Write([]byte(st.Message))
+}
+
+func TestAdapt(t *testing.T) {
+	chained := Plumb(Adapt(reqState), Adapt(index))
+
+	w := httptest.NewRecorder()
+	r, err := http.NewRequest("GET", "/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	chained.ServeHTTP(w, r)
+	s := w.Body.String()
+
+	output := s[:3]
+	assert.Equal(t, output, "123")
+}
