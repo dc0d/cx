@@ -1,75 +1,93 @@
 package plumber
 
-import "net/http"
-
-//-----------------------------------------------------------------------------
-
-//MiddlewareFunc middleware
-type MiddlewareFunc func(http.Handler) http.Handler
-
-//Execute implements Middleware inerface
-func (mf MiddlewareFunc) Execute(next http.Handler) http.Handler {
-	return mf(next)
-}
-
-//-----------------------------------------------------------------------------
-
-//ActionFunc automatically calls next middleware, if not nil. Useful for time you are not concerned with the next middleware. Can also be used as last action.
-type ActionFunc func() http.Handler
-
-//Execute implements Middleware inerface
-func (act ActionFunc) Execute(next http.Handler) http.Handler {
-	var h http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
-		act().ServeHTTP(res, req)
-		if next != nil {
-			next.ServeHTTP(res, req)
-		}
-	}
-
-	return h
-}
-
-//-----------------------------------------------------------------------------
-
-// MiddlewareChain /
-type MiddlewareChain []Middleware
-
-//Execute implements Middleware inerface
-func (mc MiddlewareChain) Execute(next http.Handler) http.Handler {
-	piled := mc
-	if next != nil {
-		var same ActionFunc = func() http.Handler { return next }
-		piled = append(mc, same)
-	}
-
-	return Plumb(piled...)
-}
+import (
+	"log"
+	"net/http"
+)
 
 //-----------------------------------------------------------------------------
 
 //Plumb creates a pipeline if middlewares
-func Plumb(middlewares ...Middleware) http.Handler {
+func Plumb(middlewares ...interface{}) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(middlewares) == 0 {
+			return
+		}
+
+		middlewares = flatten(middlewares)
+
 		var final http.Handler
 
 		for i := len(middlewares) - 1; i >= 0; i-- {
-			mw := middlewares[i]
-			if mw == nil {
+			mid := middlewares[i]
+
+			if mid == nil {
 				continue
 			}
 
-			final = mw.Execute(final)
+			switch current := mid.(type) {
+			case func(http.ResponseWriter, *http.Request):
+				next := final
+				var h http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
+					current(res, req)
+					if next == nil {
+						return
+					}
+					next.ServeHTTP(res, req)
+				}
+				final = h
+			case func(http.Handler) http.Handler:
+				if next := current(final); next != nil {
+					final = next
+				}
+			case func() http.Handler:
+				next := final
+				var h http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
+					current().ServeHTTP(res, req)
+					if next == nil {
+						return
+					}
+					next.ServeHTTP(res, req)
+				}
+				final = h
+			case func(http.ResponseWriter, *http.Request, http.Handler):
+				next := final
+				var h http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
+					current(res, req, next)
+				}
+				final = h
+
+			default:
+				log.Printf("warn: not supported type %T as handler/middleware;\n"+`supported types are:
+func(http.ResponseWriter, *http.Request)
+func(http.Handler) http.Handler
+func() http.Handler
+func(http.ResponseWriter, *http.Request, http.Handler)`, mid)
+			}
 		}
 
+		if final == nil {
+			final = http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {})
+		}
 		final.ServeHTTP(w, r)
 	})
 }
 
 //-----------------------------------------------------------------------------
 
-//Middleware inerface
-type Middleware interface {
-	Execute(http.Handler) http.Handler
+func flatten(list ...interface{}) []interface{} {
+	var result []interface{}
+	for _, v := range list {
+		v := v
+		switch item := v.(type) {
+		case []interface{}:
+			if len(item) == 0 {
+				continue
+			}
+			result = append(result, flatten(item...)...)
+		default:
+			result = append(result, item)
+		}
+	}
+	return result
 }
-
-//-----------------------------------------------------------------------------
