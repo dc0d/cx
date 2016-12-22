@@ -14,6 +14,116 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestType1(t *testing.T) {
+	md := func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(testValue))
+	}
+	typeTester(t, md)
+}
+
+func TestType2(t *testing.T) {
+	md := func(next http.Handler) http.Handler {
+		var fh http.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(testValue))
+			if next == nil {
+				return
+			}
+			next.ServeHTTP(w, r)
+		}
+
+		return fh
+	}
+	typeTester(t, md)
+}
+
+func TestType3(t *testing.T) {
+	md := func() http.Handler {
+		var fh http.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(testValue))
+		}
+
+		return fh
+	}
+	typeTester(t, md)
+}
+
+func TestType4(t *testing.T) {
+	md := func(w http.ResponseWriter, r *http.Request, next http.Handler) {
+		w.Write([]byte(testValue))
+		if next == nil {
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
+	typeTester(t, md)
+}
+
+func typeTester(t *testing.T, md interface{}) {
+	w := httptest.NewRecorder()
+	r, err := http.NewRequest("GET", "/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	chain := Plumb(md)
+
+	chain.ServeHTTP(w, r)
+	output := w.Body.String()
+	if !strings.Contains(output, testValue) {
+		t.Fail()
+	}
+}
+
+const testValue = `ONE`
+
+//-----------------------------------------------------------------------------
+
+func type1(http.ResponseWriter, *http.Request) {
+	callCounter++
+}
+
+func type2(next http.Handler) http.Handler {
+	var fh http.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {
+		callCounter++
+		if next == nil {
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
+
+	return fh
+}
+
+func type3() http.Handler {
+	callCounter++
+	return http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+}
+
+func type4(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	callCounter++
+	if next == nil {
+		return
+	}
+	next.ServeHTTP(w, r)
+}
+
+var callCounter int
+
+func TestCallCount(t *testing.T) {
+	w := httptest.NewRecorder()
+	r, err := http.NewRequest("GET", "/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	chained := Plumb(type1, type4, type2, type3, type2, type3, type4)
+	chained.ServeHTTP(w, r)
+
+	if callCounter != 7 {
+		t.Fail()
+	}
+}
+
 //-----------------------------------------------------------------------------
 
 func action1(s string) func() http.Handler {
@@ -27,7 +137,7 @@ func action1(s string) func() http.Handler {
 func mw1(state string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := context.WithValue(r.Context(), "state", state)
+			ctx := context.WithValue(r.Context(), contextKey("state"), state)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -36,7 +146,7 @@ func mw1(state string) func(next http.Handler) http.Handler {
 func mw2(t *testing.T, expectedState string) func() http.Handler {
 	return func() http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			val := r.Context().Value("state")
+			val := r.Context().Value(contextKey("state"))
 			sval := fmt.Sprintf("%v", val)
 			assert.Equal(t, sval, expectedState)
 		})
@@ -175,6 +285,16 @@ func TestGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 	chain2.ServeHTTP(w2, r2)
+
+	s1 := w1.Body.String()
+	if !strings.Contains(s1, "4") {
+		t.Fail()
+	}
+
+	s2 := w2.Body.String()
+	if !strings.Contains(s2, "45") {
+		t.Fail()
+	}
 }
 
 //-----------------------------------------------------------------------------
@@ -240,7 +360,7 @@ func reqLogger(next http.Handler) http.Handler {
 
 //-----------------------------------------------------------------------------
 
-const viewStateContextKey = `viewStateContextKey.key`
+const viewStateContextKey contextKey = `viewStateContextKey.key`
 
 type viewState struct {
 	Message string
@@ -258,3 +378,7 @@ func index(w http.ResponseWriter, r *http.Request) {
 	st := r.Context().Value(viewStateContextKey).(*viewState)
 	w.Write([]byte(st.Message))
 }
+
+//-----------------------------------------------------------------------------
+
+type contextKey string
