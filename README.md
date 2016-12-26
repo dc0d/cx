@@ -33,5 +33,7 @@ Functions with signatures of:
 * `func(http.Handler) http.Handler`
 * `func() http.Handler`
 * `func(http.ResponseWriter, *http.Request, http.Handler)` 
+* `http.HandlerFunc`
+* `http.Handler`
 
 can be used as an action or middleware.

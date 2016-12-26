@@ -80,12 +80,34 @@ func wrap(middlewares ...interface{}) (result []func(http.Handler) http.Handler)
 					current(w, r, next)
 				})
 			}
+		case http.HandlerFunc:
+			hm = func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					current(w, r)
+					if next == nil {
+						return
+					}
+					next.ServeHTTP(w, r)
+				})
+			}
+		case http.Handler:
+			hm = func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					current.ServeHTTP(w, r)
+					if next == nil {
+						return
+					}
+					next.ServeHTTP(w, r)
+				})
+			}
 		default:
 			log.Printf("warn: not supported type %T as handler/middleware;\n"+`supported types are:
 func(http.ResponseWriter, *http.Request)
 func(http.Handler) http.Handler
 func() http.Handler
-func(http.ResponseWriter, *http.Request, http.Handler)`, mid)
+func(http.ResponseWriter, *http.Request, http.Handler)
+http.HandlerFunc
+http.Handler`, mid)
 		}
 
 		if hm != nil {

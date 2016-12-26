@@ -58,6 +58,20 @@ func TestType4(t *testing.T) {
 	typeTester(t, md)
 }
 
+func TestType5(t *testing.T) {
+	var md http.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(testValue))
+	}
+	typeTester(t, md)
+}
+
+func TestType6(t *testing.T) {
+	var md http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(testValue))
+	})
+	typeTester(t, md)
+}
+
 func typeTester(t *testing.T, md interface{}) {
 	w := httptest.NewRecorder()
 	r, err := http.NewRequest("GET", "/", nil)
@@ -107,6 +121,18 @@ func type4(w http.ResponseWriter, r *http.Request, next http.Handler) {
 	next.ServeHTTP(w, r)
 }
 
+func type5() http.HandlerFunc {
+	return func(http.ResponseWriter, *http.Request) {
+		callCounter++
+	}
+}
+
+func type6() http.Handler {
+	return http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		callCounter++
+	})
+}
+
 var callCounter int
 
 func TestCallCount(t *testing.T) {
@@ -116,10 +142,10 @@ func TestCallCount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	chained := Plumb(type1, type4, type2, type3, type2, type3, type4)
+	chained := Plumb(type1, type4, type6(), type2, type3, type2, type5(), type3, type4)
 	chained.ServeHTTP(w, r)
 
-	if callCounter != 7 {
+	if callCounter != 9 {
 		t.Fail()
 	}
 }
